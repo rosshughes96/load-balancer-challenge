@@ -1,0 +1,47 @@
+
+# Build results
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# Visual Studio user files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider user files
+.idea/
+
+# Dotnet-generated debug logs
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Packages (if you ever use Paket)
+packages/
+*.nupkg
+
+# Optional: user-specific secrets or config overrides
+appsettings.*.json
+!appsettings.json
+
+# Test results
+TestResults/
+
+# Auto-generated files
+Generated/
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*.swp
+/coveragereport

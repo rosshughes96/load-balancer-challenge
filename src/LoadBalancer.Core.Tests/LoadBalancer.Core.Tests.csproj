@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="NSubstitute" Version="5.1.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LoadBalancer.Core\LoadBalancer.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Draining\" />
+    <Folder Include="Health\" />
+    <Folder Include="LoadBalancing\Strategies\" />
+    <Folder Include="Metrics\" />
+    <Folder Include="Options\" />
+    <Folder Include="Proxy\" />
+    <Folder Include="Queue\" />
+  </ItemGroup>
+</Project>

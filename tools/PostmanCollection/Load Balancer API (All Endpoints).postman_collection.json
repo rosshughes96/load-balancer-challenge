@@ -1,0 +1,243 @@
+{
+	"info": {
+		"_postman_id": "f260eeb2-f840-44de-87a7-61f49fd6c0de",
+		"name": "Load Balancer API (All Endpoints)",
+		"description": "Endpoints for configuration, safe removal (drain), metrics, and TCP forwarder options.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "9868078"
+	},
+	"item": [
+		{
+			"name": "Get Config",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/config",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"config"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Set Strategy",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "\"LeastQueue\""
+				},
+				"url": {
+					"raw": "{{baseUrl}}/config/strategy",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"config",
+						"strategy"
+					]
+				},
+				"description": "Body is a JSON string. Examples: \"RoundRobin\" or \"LeastQueue\"."
+			},
+			"response": []
+		},
+		{
+			"name": "Set Health Check Interval (seconds)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "3"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/config/interval",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"config",
+						"interval"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Add Backend",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "\"tcp://127.0.0.1:5006\""
+				},
+				"url": {
+					"raw": "{{baseUrl}}/backends/add",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"backends",
+						"add"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Safe Remove (start drain, no timeout)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:50771/backends/safe-remove?backendUrl=tcp://127.0.0.1:5006",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "50771",
+					"path": [
+						"backends",
+						"safe-remove"
+					],
+					"query": [
+						{
+							"key": "backendUrl",
+							"value": "tcp://127.0.0.1:5006"
+						}
+					]
+				},
+				"description": "Starts drain. Backend stops receiving new traffic. Removal occurs when active connections reach zero."
+			},
+			"response": []
+		},
+		{
+			"name": "Safe Remove (start drain, 30s timeout)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:50771/backends/safe-remove?backendUrl=tcp://127.0.0.1:5006&timeoutSeconds=30",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "50771",
+					"path": [
+						"",
+						"backends",
+						"safe-remove"
+					],
+					"query": [
+						{
+							"key": "backendUrl",
+							"value": "tcp://127.0.0.1:5006"
+						},
+						{
+							"key": "timeoutSeconds",
+							"value": "30"
+						}
+					]
+				},
+				"description": "Same as above, but forces removal after 30 seconds if still active."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Metrics Snapshot",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/stats",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"stats"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get TCP Forwarder Options",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/tcpforwarder/config",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tcpforwarder",
+						"config"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update TCP Forwarder Options",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"MaxConcurrentConnections\": 1000,\n  \"IdleTimeoutSeconds\": 15,\n  \"MaxLifetimeSeconds\": 300,\n  \"BufferSize\": 8192\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tcpforwarder/config",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tcpforwarder",
+						"config"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:50771"
+		}
+	]
+}
