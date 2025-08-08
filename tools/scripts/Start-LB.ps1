@@ -84,6 +84,7 @@ for ($i = 0; $i -lt 5; $i++) {
   } else {
     $proc = Start-Headless -Exe "dotnet" -Args "run --project `"$DummyProj`" -- $name $port $delay"
   }
+  Start-Sleep -m 500
   $pids += @{ role = "server"; name = $name; port = $port; delay = $delay; pid = $proc.Id }
 }
 
