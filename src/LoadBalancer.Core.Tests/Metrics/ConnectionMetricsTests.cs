@@ -1,33 +1,47 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using LoadBalancerProject.Backends;
+using LoadBalancerProject.Configuration;
+using LoadBalancerProject.Health;
+using LoadBalancerProject.LoadBalancing;
+using LoadBalancerProject.LoadBalancing.Strategies;
 using LoadBalancerProject.Metrics;
+using LoadBalancerProject.Queue;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using NUnit.Framework;
 
 
 namespace LoadBalancerProject.Tests.Metrics;
 
+[Category("Unit")]
 [TestFixture]
 public class ConnectionMetricsTests
 {
     [Test]
-    public void Snapshot_Tracks_Active_And_Total()
+    public void Snapshot_When_ConnectionsChange_Should_ReflectCounts()
     {
         // Arrange
-        var m = new ConnectionMetrics();
+        var sut = new ConnectionMetrics();
         var a = new Uri("tcp://127.0.0.1:5001");
         var b = new Uri("tcp://127.0.0.1:5002");
 
         // Act
-        m.OnConnectionStart(a);
-        m.OnConnectionStart(a);
-        m.OnConnectionStart(b);
-        var s1 = m.Snapshot();
+        sut.OnConnectionStart(a);
+        sut.OnConnectionStart(a);
+        sut.OnConnectionStart(b);
+        var s1 = sut.Snapshot();
 
-        m.OnConnectionEnd(a);
-        var s2 = m.Snapshot();
+        sut.OnConnectionEnd(a);
+        var s2 = sut.Snapshot();
 
         // Assert
         Assert.That(s1.Backends.Count, Is.EqualTo(2));
         Assert.That(s1.ActiveAll, Is.EqualTo(3));
         Assert.That(s1.TotalAll, Is.EqualTo(3));
+
         var a1 = s1.Backends.Single(x => x.Backend.EndsWith(":5001/"));
         var b1 = s1.Backends.Single(x => x.Backend.EndsWith(":5002/"));
         Assert.That(a1.Active, Is.EqualTo(2));

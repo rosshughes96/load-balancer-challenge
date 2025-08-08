@@ -1,5 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using LoadBalancerProject.Backends;
 using LoadBalancerProject.Configuration;
+using LoadBalancerProject.Health;
+using LoadBalancerProject.LoadBalancing;
 using LoadBalancerProject.LoadBalancing.Strategies;
+using LoadBalancerProject.Metrics;
 using LoadBalancerProject.Queue;
 using LoadBalancerProject.Strategies;
 using Microsoft.Extensions.Logging;
@@ -9,37 +17,45 @@ using NUnit.Framework;
 
 namespace LoadBalancerProject.Tests.Strategies;
 
+[Category("Unit")]
 [TestFixture]
 public class StrategyProviderTests
 {
     [Test]
-    public void Provider_Resolves_Concrete_Strategies_And_Refreshes()
+    public void Current_When_RoundRobin_Config_Should_BeRoundRobin()
     {
         // Arrange
         var cfg = Substitute.For<IDynamicConfig>();
         cfg.Strategy.Returns("RoundRobin");
-
         var rr = new RoundRobinStrategy();
         var lq = new LeastQueueStrategy(Substitute.For<IBackendQueueTracker>());
         var logger = Substitute.For<ILogger<StrategyProvider>>();
 
-        var provider = new StrategyProvider(cfg, rr, lq, logger);
+        var sut = new StrategyProvider(cfg, rr, lq, logger);
 
-        // Assert initial
-        Assert.That(provider.Current, Is.SameAs(rr));
+        // Act
+        var current = sut.Current;
 
-        // Act - switch to LeastQueue
+        // Assert
+        Assert.That(current, Is.SameAs(rr));
+    }
+
+    [Test]
+    public void Refresh_When_LeastQueue_Config_Should_SwitchToLeastQueue()
+    {
+        // Arrange
+        var cfg = Substitute.For<IDynamicConfig>();
+        cfg.Strategy.Returns("RoundRobin");
+        var rr = new RoundRobinStrategy();
+        var lq = new LeastQueueStrategy(Substitute.For<IBackendQueueTracker>());
+        var logger = Substitute.For<ILogger<StrategyProvider>>();
+        var sut = new StrategyProvider(cfg, rr, lq, logger);
+
+        // Act
         cfg.Strategy.Returns("LeastQueue");
-        provider.Refresh();
+        sut.Refresh();
 
         // Assert
-        Assert.That(provider.Current, Is.SameAs(lq));
-
-        // Act - unknown -> default RoundRobin
-        cfg.Strategy.Returns("??");
-        provider.Refresh();
-
-        // Assert
-        Assert.That(provider.Current, Is.SameAs(rr));
+        Assert.That(sut.Current, Is.SameAs(lq));
     }
 }

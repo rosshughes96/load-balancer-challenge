@@ -1,17 +1,30 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using LoadBalancerProject.Backends;
+using LoadBalancerProject.Configuration;
+using LoadBalancerProject.Health;
+using LoadBalancerProject.LoadBalancing;
 using LoadBalancerProject.LoadBalancing.Strategies;
+using LoadBalancerProject.Metrics;
+using LoadBalancerProject.Queue;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using NUnit.Framework;
 
 
 namespace LoadBalancerProject.Tests.Strategies;
 
+[Category("Unit")]
 [TestFixture]
 public class RoundRobinStrategyTests
 {
     [Test]
-    public void SelectBackend_Cycles_Strictly_In_Order()
+    public void SelectBackend_WithBackends_Should_CycleStrictly()
     {
         // Arrange
-        var rr = new RoundRobinStrategy();
+        var sut = new RoundRobinStrategy();
         var list = new List<Uri>
         {
             new("tcp://127.0.0.1:5001"),
@@ -20,10 +33,10 @@ public class RoundRobinStrategyTests
         };
 
         // Act
-        var p1 = rr.SelectBackend(list);
-        var p2 = rr.SelectBackend(list);
-        var p3 = rr.SelectBackend(list);
-        var p4 = rr.SelectBackend(list);
+        var p1 = sut.SelectBackend(list);
+        var p2 = sut.SelectBackend(list);
+        var p3 = sut.SelectBackend(list);
+        var p4 = sut.SelectBackend(list);
 
         // Assert
         Assert.That(p1, Is.EqualTo(list[0]));
@@ -33,10 +46,10 @@ public class RoundRobinStrategyTests
     }
 
     [Test]
-    public void SelectBackend_Is_Thread_Safe_And_Balanced()
+    public void SelectBackend_When_Concurrent_Should_BeEvenlyDistributed()
     {
         // Arrange
-        var rr = new RoundRobinStrategy();
+        var sut = new RoundRobinStrategy();
         var list = new List<Uri>
         {
             new("tcp://127.0.0.1:5001"),
@@ -50,12 +63,12 @@ public class RoundRobinStrategyTests
         // Act
         System.Threading.Tasks.Parallel.For(0, 10_000, _ =>
         {
-            var u = rr.SelectBackend(list);
+            var u = sut.SelectBackend(list);
             var ix = list.IndexOf(u);
             Interlocked.Increment(ref counts[ix]);
         });
 
-        // Assert (each bucket ~ 2000, allow some jitter)
+        // Assert
         foreach (var c in counts)
         {
             Assert.That(c, Is.InRange(1800, 2200));
@@ -63,13 +76,13 @@ public class RoundRobinStrategyTests
     }
 
     [Test]
-    public void SelectBackend_Throws_On_Empty_List()
+    public void SelectBackend_When_ListEmpty_Should_Throw()
     {
         // Arrange
-        var rr = new RoundRobinStrategy();
+        var sut = new RoundRobinStrategy();
         var empty = new List<Uri>();
 
-        // Act/Assert
-        Assert.That(() => rr.SelectBackend(empty), Throws.InvalidOperationException);
+        // Act / Assert
+        Assert.That(() => sut.SelectBackend(empty), Throws.InvalidOperationException);
     }
 }

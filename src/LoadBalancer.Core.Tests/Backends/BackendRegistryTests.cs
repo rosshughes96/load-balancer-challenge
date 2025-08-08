@@ -1,4 +1,14 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using LoadBalancerProject.Backends;
+using LoadBalancerProject.Configuration;
+using LoadBalancerProject.Health;
+using LoadBalancerProject.LoadBalancing;
+using LoadBalancerProject.LoadBalancing.Strategies;
+using LoadBalancerProject.Metrics;
+using LoadBalancerProject.Queue;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
@@ -6,35 +16,76 @@ using NUnit.Framework;
 
 namespace LoadBalancerProject.Tests.Backends;
 
+[Category("Unit")]
 [TestFixture]
 public class BackendRegistryTests
 {
     [Test]
-    public void Add_Remove_List_Are_Correct()
+    public void Add_When_NewUri_Should_AddAndReturnTrue()
     {
         // Arrange
         var logger = Substitute.For<ILogger<BackendRegistry>>();
-        var reg = new BackendRegistry(logger);
+        var sut = new BackendRegistry(logger);
         var a = new Uri("tcp://127.0.0.1:5001");
-        var b = new Uri("tcp://127.0.0.1:5002");
 
         // Act
-        var addedA = reg.Add(a);
-        var addedB = reg.Add(b);
-        var addedADup = reg.Add(a);
-        var list1 = reg.List();
-        var removedA = reg.Remove(a);
-        var removedAMissing = reg.Remove(a);
-        var list2 = reg.List();
+        var added = sut.Add(a);
+        var list = sut.List();
 
         // Assert
-        Assert.That(addedA, Is.True);
-        Assert.That(addedB, Is.True);
-        Assert.That(addedADup, Is.False);
-        Assert.That(list1, Has.Count.EqualTo(2));
-        Assert.That(removedA, Is.True);
-        Assert.That(removedAMissing, Is.False);
-        Assert.That(list2, Has.Count.EqualTo(1));
-        Assert.That(list2[0], Is.EqualTo(b));
+        Assert.That(added, Is.True);
+        Assert.That(list, Has.Count.EqualTo(1));
+        Assert.That(list[0], Is.EqualTo(a));
+    }
+
+    [Test]
+    public void Add_When_Duplicate_Should_ReturnFalse_AndNotDuplicate()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<BackendRegistry>>();
+        var sut = new BackendRegistry(logger);
+        var a = new Uri("tcp://127.0.0.1:5001");
+        sut.Add(a);
+
+        // Act
+        var addedAgain = sut.Add(a);
+        var list = sut.List();
+
+        // Assert
+        Assert.That(addedAgain, Is.False);
+        Assert.That(list, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void Remove_When_Present_Should_RemoveAndReturnTrue()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<BackendRegistry>>();
+        var sut = new BackendRegistry(logger);
+        var a = new Uri("tcp://127.0.0.1:5001");
+        sut.Add(a);
+
+        // Act
+        var removed = sut.Remove(a);
+        var list = sut.List();
+
+        // Assert
+        Assert.That(removed, Is.True);
+        Assert.That(list, Is.Empty);
+    }
+
+    [Test]
+    public void Remove_When_NotPresent_Should_ReturnFalse()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<BackendRegistry>>();
+        var sut = new BackendRegistry(logger);
+        var a = new Uri("tcp://127.0.0.1:5001");
+
+        // Act
+        var removed = sut.Remove(a);
+
+        // Assert
+        Assert.That(removed, Is.False);
     }
 }
