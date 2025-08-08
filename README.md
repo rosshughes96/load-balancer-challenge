@@ -1,73 +1,154 @@
-# Load Balancer (Layer 4) – Demo & Tests
+# Load Balancer (Layer 4) — .NET 8 Demo
 
-This repository contains:
-- **LoadBalancer.Api** – Minimal management API (dynamic config + `/stats`)
-- **LoadBalancer.Core** – Library (strategies, health checks, TCP proxy, metrics)
-- **DummyTCPEchoServer** – Local TCP echo server for backend simulation
-- **LoadBalancer.Core.Tests** – NUnit + NSubstitute unit tests for Core
+A minimal, **protocol-agnostic (L4)** software load balancer built with .NET 8.  
+It exposes a small **HTTP API** for control/observability and runs a **TCP listener** (data plane) that forwards raw TCP streams to healthy backends using a pluggable strategy (Strict **Round Robin** or **Least Queue**).
 
-## Quick Demo
+---
 
-1) **Start 5 dummy servers** (Server3 slow, others fast):
+## ✨ Features
+
+- **.NET 8** console/API host
+- **TCP proxy** (dual-stack IPv6/IPv4 listener)
+- **Strategies**
+  - **RoundRobin** (strict, thread-safe, deterministic)
+  - **LeastQueue** (picks backend with smallest observed queue length)
+- **Health checks** (periodic TCP probe; backends removed when down)
+- **Dynamic strategy switch** via API
+- **Metrics & stats** (active/total per backend) via API
+- **Serilog logging** to console **and** rolling file (date-stamped w/ size-based rollover)
+- **Dummy TCP Echo Server** for local testing (optional artificial delay per server)
+- **JMeter test plan** to hammer the TCP listener
+- **Start/Stop** PowerShell scripts (with PID tracking or process discovery fallback)
+- **Tests**
+  - **Unit** (NUnit + NSubstitute, AAA style, `Assert.That`)
+  - **Integration** (socket round-trip through the forwarder)
+
+---
+
+## 📦 Repository layout
+
+```
+/src
+  /LoadBalancer.Api               # HTTP control plane + hosts TCP listener service
+  /LoadBalancer.Core              # Strategies, health checks, metrics, forwarder
+  /DummyTCPEchoServer             # Local echo server (ServerName Port [DelayMs])
+  /LoadBalancer.Core.Tests        # Unit tests (no real IO)
+  /LoadBalancer.Core.IntegrationTests  # Integration tests (real sockets)
+/tools
+  /scripts
+    Start-LB.ps1                  # Start 5 echo servers + API (optional)
+    Stop-LB.ps1                   # Stop them (PID file or process search)
+  /JMeterTestPlan
+    LB_TCP_Test.jmx               # JMeter plan to hammer TCP listener
+/logs                              # Serilog rolling files (gitignored)
+README.md
+```
+
+---
+
+## 🔧 Prerequisites
+
+- **.NET 8 SDK**
+- **PowerShell** (for the helper scripts; optional)
+- **JMeter** (optional, for load tests)
+
+---
+
+## 🚀 Quick start (local)
+
+### 1) Start 5 dummy backends (echo servers)
+
+Each takes: `ServerName Port [DelayMs]`
+
 ```powershell
 dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server1 5001
 dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server2 5002
-dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server3 5003 2000
+dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server3 5003 2000   # slower on purpose
 dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server4 5004
 dotnet run --project src/DummyTCPEchoServer/DummyTCPEchoServer.csproj Server5 5005
 ```
 
-2) **Run the API** (also hosts the TCP listener):
-```powershell
-dotnet run --project src/LoadBalancer.Api/LoadBalancer.Api.csproj
+> Use multiple terminals, or see **Start/Stop scripts** below to launch them all at once.
+
+### 2) Configure the Load Balancer (appsettings)
+
+`src/LoadBalancer.Api/appsettings.json` (example):
+```json
+{
+  "LoadBalancer": {
+    "ListenPort": 6000,
+    "Strategy": "RoundRobin",
+    "HealthCheckIntervalSeconds": 5,
+    "Backends": [
+      "tcp://127.0.0.1:5001",
+      "tcp://127.0.0.1:5002",
+      "tcp://127.0.0.1:5003",
+      "tcp://127.0.0.1:5004",
+      "tcp://127.0.0.1:5005"
+    ]
+  },
+  "Serilog": {
+    "MinimumLevel": "Information",
+    "WriteTo": [
+      { "Name": "Console" },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "logs/LoadBalancer-.log",
+          "rollingInterval": "Day",
+          "fileSizeLimitBytes": 10485760,
+          "rollOnFileSizeLimit": true,
+          "retainedFileCountLimit": 10,
+          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        }
+      }
+    ]
+  }
+}
 ```
 
-3) **Hit TCP listener** (set `LoadBalancer:ListenPort`, e.g. `6000`):
+---
+
+## 🔌 HTTP API (control & observability)
+
+- `GET  /stats` → returns current metrics snapshot (per backend and totals).
+- `POST /config/strategy` — change the load balancing strategy:
+  ```bash
+  curl -X POST http://localhost:5000/config/strategy        -H "Content-Type: application/json"        -d "\"LeastQueue\""
+  ```
+
+---
+
+## 🧪 Testing
+
+### Unit tests (no real IO)
 ```bash
-echo "hello" | nc 127.0.0.1 6000
-# or on Windows (PowerShell):
-# $c = New-Object System.Net.Sockets.TcpClient("127.0.0.1",6000); $s=$c.GetStream(); $b=[Text.Encoding]::UTF8.GetBytes("hello"); $s.Write($b,0,$b.Length); $buf=New-Object byte[] 1024; $n=$s.Read($buf,0,$buf.Length); [Text.Encoding]::UTF8.GetString($buf,0,$n); $c.Close()
+dotnet test src/LoadBalancer.Core.Tests
 ```
 
-4) **Change strategy on-the-fly**:
+### Integration tests (real sockets)
 ```bash
-curl -X POST http://localhost:5000/config/strategy -H "Content-Type: application/json" -d ""RoundRobin""
-curl -X POST http://localhost:5000/config/strategy -H "Content-Type: application/json" -d ""LeastQueue""
+dotnet test src/LoadBalancer.Core.IntegrationTests
 ```
 
-5) **See live stats**:
-```bash
-curl http://localhost:5000/stats
-```
+---
 
-> Use `127.0.0.1` in backend URIs to avoid IPv6 localhost issues.
+## 🧰 Start/Stop scripts (optional)
 
-## Running Unit Tests (with coverage)
+- **Start everything** (5 servers + API):
+  ```powershell
+  .\tools\scripts\Start-LB.ps1 -KeepWindowsOpen
+  ```
 
-```bash
-dotnet test src/LoadBalancer.Core.Tests/LoadBalancer.Core.Tests.csproj --collect:"XPlat Code Coverage"
-```
+- **Stop everything**:
+  ```powershell
+  .\tools\scripts\Stop-LB.ps1
+  ```
 
-The tests use **NUnit** + **NSubstitute** and aim for high coverage of Core components. Assertions use **Assert.That** and include **Arrange/Act/Assert** comments for clarity.
+---
 
-## Project Layout
+## 📈 Load testing (JMeter)
 
-```
-/src
-  /LoadBalancer.Api
-  /LoadBalancer.Core
-  /DummyTCPEchoServer
-  /LoadBalancer.Core.Tests
-/tools
-  /scripts            # (optional) helper scripts like Start/Stop
-  /JMeterTestPlan     # LB_TCP_Test.jmx etc.
-/logs                 # runtime logs (gitignored)
-README.md
-```
-
-## Notes & Gotchas
-
-- **Strict Round Robin**: implemented with an atomic counter (Interlocked) and a **stable, sorted** backend list. Ensure `StrategyProvider` injects **concrete** types to avoid DI ambiguity.
-- **LeastQueue**: driven by `IBackendQueueTracker`; the TCP forwarder increments/decrements per-connection.
-- **Health Checks**: prefer `tcp://127.0.0.1:PORT` backends or bind echo servers dual-stack (`DualMode = true`).
-- **Logging**: Library uses `ILogger<T>`; hosts configure Serilog (console + rolling file). Scoped fields: `{Backend}`, `{ConnectionId}`.
+1. Open JMeter → load `tools/JMeterTestPlan/LB_TCP_Test.jmx`.
+2. Set **Server** = `127.0.0.1`, **Port** = your listener (e.g., `6000`).
+3. Adjust threads and loop count, then run.
