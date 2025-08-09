@@ -1,37 +1,64 @@
-using System.Collections.Concurrent;
-
 namespace LoadBalancerProject.Metrics
 {
-    public class ConnectionMetrics : IConnectionMetrics
-    {
-        private class Counter { public int Active; public long Total; }
-        private readonly ConcurrentDictionary<string, Counter> _map = new();
+    using System;
+    using System.Collections.Concurrent;
+    using System.Linq;
+    using System.Threading;
 
-        public void OnConnectionStart(Uri backend)
+    /// <summary>
+    /// Thread-safe in-memory implementation of <see cref="IConnectionMetrics"/>.
+    /// </summary>
+    /// <remarks>
+    /// Tracks both active connections and total connections since startup for each backend.
+    /// </remarks>
+    public sealed class ConnectionMetrics : IConnectionMetrics
+    {
+        /// <summary>
+        /// Holds active and total connection counters for a backend.
+        /// </summary>
+        private sealed class Counter
         {
-            var key = backend.ToString();
-            var c = _map.GetOrAdd(key, _ => new Counter());
-            System.Threading.Interlocked.Increment(ref c.Active);
-            System.Threading.Interlocked.Increment(ref c.Total);
+            public int Active;
+            public long Total;
         }
 
+        private readonly ConcurrentDictionary<string, Counter> _map = new();
+
+        /// <inheritdoc />
+        public void OnConnectionStart(Uri backend)
+        {
+            if (backend is null) throw new ArgumentNullException(nameof(backend));
+
+            var key = backend.ToString();
+            var counter = _map.GetOrAdd(key, _ => new Counter());
+
+            Interlocked.Increment(ref counter.Active);
+            Interlocked.Increment(ref counter.Total);
+        }
+
+        /// <inheritdoc />
         public void OnConnectionEnd(Uri backend)
         {
+            if (backend is null) throw new ArgumentNullException(nameof(backend));
+
             var key = backend.ToString();
-            if (_map.TryGetValue(key, out var c))
+            if (_map.TryGetValue(key, out var counter))
             {
-                System.Threading.Interlocked.Decrement(ref c.Active);
+                Interlocked.Decrement(ref counter.Active);
             }
         }
 
+        /// <inheritdoc />
         public MetricsSnapshot Snapshot()
         {
-            var list = _map.Select(kvp =>
-                new BackendMetrics(kvp.Key, kvp.Value.Active, kvp.Value.Total)
-            ).OrderBy(b => b.Backend).ToList();
+            var list = _map
+                .Select(kvp => new BackendMetrics(kvp.Key, kvp.Value.Active, kvp.Value.Total))
+                .OrderBy(b => b.Backend, StringComparer.Ordinal)
+                .ToList();
 
             var activeAll = list.Sum(b => b.Active);
             var totalAll = list.Sum(b => b.Total);
+
             return new MetricsSnapshot(list, activeAll, totalAll);
         }
     }

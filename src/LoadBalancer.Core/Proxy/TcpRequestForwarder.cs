@@ -1,16 +1,20 @@
-using LoadBalancerProject.Metrics;
-using LoadBalancerProject.Options;
-using LoadBalancerProject.Queue;
-using Microsoft.Extensions.Logging;
-using System.Net.Sockets;
-
 namespace LoadBalancerProject.Proxy
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Net.Sockets;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using LoadBalancerProject.Metrics;
+    using LoadBalancerProject.Options;
+    using LoadBalancerProject.Queue;
+    using Microsoft.Extensions.Logging;
+
     /// <summary>
-    /// TCP forwarder with per-connection idle timeout, max lifetime, global connection cap,
-    /// structured logging scopes, and metrics hooks.
+    /// TCP forwarder with connection limits, idle timeout, max lifetime,
+    /// structured logging scopes, and metrics tracking.
     /// </summary>
-    public class TcpRequestForwarder : IRequestForwarder
+    public sealed class TcpRequestForwarder : IRequestForwarder
     {
         private readonly ILogger<TcpRequestForwarder> _logger;
         private readonly IBackendQueueTracker _queueTracker;
@@ -19,17 +23,22 @@ namespace LoadBalancerProject.Proxy
 
         private static int _activeConnections = 0;
 
-        public TcpRequestForwarder(ILogger<TcpRequestForwarder> logger,
-                                   IBackendQueueTracker queueTracker,
-                                   TcpForwarderOptions options,
-                                   IConnectionMetrics metrics)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TcpRequestForwarder"/> class.
+        /// </summary>
+        public TcpRequestForwarder(
+            ILogger<TcpRequestForwarder> logger,
+            IBackendQueueTracker queueTracker,
+            TcpForwarderOptions options,
+            IConnectionMetrics metrics)
         {
-            _logger = logger;
-            _queueTracker = queueTracker;
-            _options = options;
-            _metrics = metrics;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _queueTracker = queueTracker ?? throw new ArgumentNullException(nameof(queueTracker));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         }
 
+        /// <inheritdoc/>
         public async Task ForwardAsync(Uri backend, TcpClient client)
         {
             var connectionId = Guid.NewGuid().ToString("N");
@@ -40,47 +49,51 @@ namespace LoadBalancerProject.Proxy
                 ["ConnectionId"] = connectionId
             });
 
+            // Enforce maximum concurrent connections
             if (Interlocked.Increment(ref _activeConnections) > _options.MaxConcurrentConnections)
             {
-                _logger.LogWarning("Max connections reached ({Max}), rejecting new client.", _options.MaxConcurrentConnections);
+                _logger.LogWarning("Max connections reached ({Max}), rejecting client.", _options.MaxConcurrentConnections);
                 Interlocked.Decrement(ref _activeConnections);
-                try { client.Close(); } catch { }
+                try { client.Close(); } catch { /* Ignore */ }
                 return;
             }
 
             using var backendClient = new TcpClient();
             try
             {
-                _logger.LogInformation("Connecting to backend");
+                _logger.LogInformation("Connecting to backend {Backend}", backend);
                 await backendClient.ConnectAsync(backend.Host, backend.Port);
+
                 _queueTracker.Increment(backend);
                 _metrics.OnConnectionStart(backend);
 
                 using var clientStream = client.GetStream();
                 using var backendStream = backendClient.GetStream();
-
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_options.MaxLifetimeSeconds));
 
-                var c2b = RelayWithTimeoutAsync("c2b", clientStream, backendStream, cts.Token);
-                var b2c = RelayWithTimeoutAsync("b2c", backendStream, clientStream, cts.Token);
+                var c2b = RelayWithTimeoutAsync("ClientToBackend", clientStream, backendStream, cts.Token);
+                var b2c = RelayWithTimeoutAsync("BackendToClient", backendStream, clientStream, cts.Token);
 
                 await Task.WhenAny(c2b, b2c);
-                _logger.LogInformation("Relay finished");
+                _logger.LogInformation("Relay finished for connection {ConnectionId}", connectionId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error forwarding");
+                _logger.LogError(ex, "Error forwarding for connection {ConnectionId}", connectionId);
             }
             finally
             {
                 _queueTracker.Decrement(backend);
                 _metrics.OnConnectionEnd(backend);
                 Interlocked.Decrement(ref _activeConnections);
-                try { client.Close(); } catch { }
+                try { client.Close(); } catch { /* Ignore */ }
             }
         }
 
-        private async Task RelayWithTimeoutAsync(string dir, NetworkStream from, NetworkStream to, CancellationToken lifetimeToken)
+        /// <summary>
+        /// Relays data between two network streams with idle timeout enforcement.
+        /// </summary>
+        private async Task RelayWithTimeoutAsync(string direction, NetworkStream from, NetworkStream to, CancellationToken lifetimeToken)
         {
             var buffer = new byte[_options.BufferSize];
             while (!lifetimeToken.IsCancellationRequested)
@@ -91,18 +104,18 @@ namespace LoadBalancerProject.Proxy
 
                 if (completed != readTask)
                 {
-                    _logger.LogWarning("Idle timeout in {Dir}", dir);
+                    _logger.LogWarning("Idle timeout in {Direction}", direction);
                     break;
                 }
 
-                var n = readTask.Result;
-                if (n <= 0)
+                var bytesRead = readTask.Result;
+                if (bytesRead <= 0)
                 {
-                    _logger.LogDebug("EOF on {Dir}", dir);
+                    _logger.LogDebug("EOF on {Direction}", direction);
                     break;
                 }
 
-                await to.WriteAsync(buffer, 0, n, lifetimeToken).ConfigureAwait(false);
+                await to.WriteAsync(buffer, 0, bytesRead, lifetimeToken).ConfigureAwait(false);
             }
         }
     }
