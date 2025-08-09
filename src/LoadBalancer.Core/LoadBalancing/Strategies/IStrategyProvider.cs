@@ -1,9 +1,7 @@
-﻿namespace LoadBalancer.Core.LoadBalancing.Strategies
+﻿namespace LoadBalancerProject.LoadBalancing.Strategies
 {
-    using LoadBalancerProject.LoadBalancing.Strategies;
-
     /// <summary>
-    /// Provides and manages the currently active backend selection strategy.
+    /// Provides the currently active backend selection strategy and allows refreshing it.
     /// </summary>
     public interface IStrategyProvider
     {

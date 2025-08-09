@@ -14,10 +14,6 @@ namespace LoadBalancerProject.Health
     /// <summary>
     /// Periodically probes all registered backends to determine their health status.
     /// </summary>
-    /// <remarks>
-    /// Uses TCP connect attempts to verify reachability. Healthy backends are stored in a thread-safe
-    /// list and returned in a sorted order to keep strategies deterministic.
-    /// </remarks>
     public sealed class DynamicHealthChecker : BackgroundService, IHealthChecker
     {
         private const int ProbeTimeoutSeconds = 1;
@@ -29,15 +25,6 @@ namespace LoadBalancerProject.Health
         private readonly List<Uri> _healthy = new();
         private readonly object _sync = new();
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DynamicHealthChecker"/> class.
-        /// </summary>
-        /// <param name="logger">Logger for health probe results.</param>
-        /// <param name="registry">Registry of configured backends.</param>
-        /// <param name="config">Dynamic configuration source.</param>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown when any dependency is null.
-        /// </exception>
         public DynamicHealthChecker(
             ILogger<DynamicHealthChecker> logger,
             IBackendRegistry registry,
@@ -53,61 +40,56 @@ namespace LoadBalancerProject.Health
         {
             lock (_sync)
             {
-                // Return a stable, sorted snapshot for deterministic strategy behavior
+                // Return a stable, sorted snapshot for deterministic strategy behavior.
                 return _healthy
                     .OrderBy(u => u.ToString(), StringComparer.Ordinal)
                     .ToArray();
             }
         }
 
-        /// <summary>
-        /// Executes the background health check loop until cancellation is requested.
-        /// </summary>
+        /// <inheritdoc/>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 await ProbeOnce(stoppingToken);
-
                 var delaySeconds = Math.Max(1, _config.HealthCheckIntervalSeconds);
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
             }
         }
 
-        /// <summary>
-        /// Performs a single round of health probes against all registered backends.
-        /// </summary>
         private async Task ProbeOnce(CancellationToken ct)
         {
             var candidates = _registry.List();
-            var healthy = new List<Uri>(candidates.Count);
+            var timeout = TimeSpan.FromSeconds(ProbeTimeoutSeconds);
 
-            foreach (var uri in candidates)
+            // Probe all candidates in parallel so a slow/down host doesn't serialize the loop.
+            var tasks = candidates.Select(async uri =>
             {
                 try
                 {
                     using var client = new TcpClient();
-                    var connectTask = client.ConnectAsync(uri.Host, uri.Port);
-                    var completed = await Task.WhenAny(connectTask, Task.Delay(TimeSpan.FromSeconds(ProbeTimeoutSeconds), ct));
-
-                    if (completed == connectTask && client.Connected)
-                    {
-                        healthy.Add(uri);
-                    }
+                    var connect = client.ConnectAsync(uri.Host, uri.Port);
+                    var done = await Task.WhenAny(connect, Task.Delay(timeout, ct)).ConfigureAwait(false);
+                    var ok = done == connect && client.Connected;
+                    return (uri, ok);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    _logger.LogDebug(ex, "Health probe failed for {Backend}", uri);
+                    return (uri, ok: false);
                 }
-            }
+            }).ToArray();
+
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            var healthyList = results.Where(x => x.ok).Select(x => x.uri).ToList();
 
             lock (_sync)
             {
                 _healthy.Clear();
-                _healthy.AddRange(healthy);
+                _healthy.AddRange(healthyList);
             }
 
-            _logger.LogInformation("Health: {Healthy}/{Total} backends healthy", healthy.Count, candidates.Count);
+            _logger.LogInformation("Health: {Healthy}/{Total} backends healthy", healthyList.Count, candidates.Count);
         }
     }
 }

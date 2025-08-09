@@ -23,9 +23,6 @@ namespace LoadBalancerProject.Proxy
 
         private static int _activeConnections = 0;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="TcpRequestForwarder"/> class.
-        /// </summary>
         public TcpRequestForwarder(
             ILogger<TcpRequestForwarder> logger,
             IBackendQueueTracker queueTracker,
@@ -54,7 +51,7 @@ namespace LoadBalancerProject.Proxy
             {
                 _logger.LogWarning("Max connections reached ({Max}), rejecting client.", _options.MaxConcurrentConnections);
                 Interlocked.Decrement(ref _activeConnections);
-                try { client.Close(); } catch { /* Ignore */ }
+                try { client.Close(); } catch { /* ignore */ }
                 return;
             }
 
@@ -74,7 +71,7 @@ namespace LoadBalancerProject.Proxy
                 var c2b = RelayWithTimeoutAsync("ClientToBackend", clientStream, backendStream, cts.Token);
                 var b2c = RelayWithTimeoutAsync("BackendToClient", backendStream, clientStream, cts.Token);
 
-                await Task.WhenAny(c2b, b2c);
+                await Task.WhenAny(c2b, b2c).ConfigureAwait(false);
                 _logger.LogInformation("Relay finished for connection {ConnectionId}", connectionId);
             }
             catch (Exception ex)
@@ -86,20 +83,22 @@ namespace LoadBalancerProject.Proxy
                 _queueTracker.Decrement(backend);
                 _metrics.OnConnectionEnd(backend);
                 Interlocked.Decrement(ref _activeConnections);
-                try { client.Close(); } catch { /* Ignore */ }
+                try { client.Close(); } catch { /* ignore */ }
             }
         }
 
         /// <summary>
-        /// Relays data between two network streams with idle timeout enforcement.
+        /// Relays data between two network streams with idle and lifetime timeouts enforced.
         /// </summary>
         private async Task RelayWithTimeoutAsync(string direction, NetworkStream from, NetworkStream to, CancellationToken lifetimeToken)
         {
             var buffer = new byte[_options.BufferSize];
+
             while (!lifetimeToken.IsCancellationRequested)
             {
                 var readTask = from.ReadAsync(buffer, 0, buffer.Length, lifetimeToken);
                 var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_options.IdleTimeoutSeconds), lifetimeToken);
+
                 var completed = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
 
                 if (completed != readTask)
@@ -108,7 +107,18 @@ namespace LoadBalancerProject.Proxy
                     break;
                 }
 
-                var bytesRead = readTask.Result;
+                int bytesRead;
+                try
+                {
+                    // Await the read task so cancellation/IO exceptions surface correctly
+                    bytesRead = await readTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Lifetime/idle token canceled the read
+                    break;
+                }
+
                 if (bytesRead <= 0)
                 {
                     _logger.LogDebug("EOF on {Direction}", direction);

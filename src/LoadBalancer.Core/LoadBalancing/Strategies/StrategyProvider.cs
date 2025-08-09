@@ -1,8 +1,8 @@
-namespace LoadBalancer.Core.LoadBalancing.Strategies
+namespace LoadBalancerProject.LoadBalancing.Strategies
 {
     using System;
+    using System.Threading;
     using LoadBalancerProject.Configuration;
-    using LoadBalancerProject.LoadBalancing.Strategies;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -15,16 +15,16 @@ namespace LoadBalancer.Core.LoadBalancing.Strategies
         private readonly LeastQueueStrategy _leastQueue;
         private readonly ILogger<StrategyProvider> _logger;
 
+        // Use Volatile.Read/Write for memory visibility across threads
         private IBackendSelectorStrategy _current;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StrategyProvider"/> class.
         /// </summary>
-        /// <param name="config">The dynamic configuration service.</param>
+        /// <param name="config">The dynamic configuration source.</param>
         /// <param name="roundRobin">The round robin strategy instance.</param>
         /// <param name="leastQueue">The least queue strategy instance.</param>
-        /// <param name="logger">The logger for diagnostic output.</param>
-        /// <exception cref="ArgumentNullException">Thrown if any dependency is null.</exception>
+        /// <param name="logger">The logger instance.</param>
         public StrategyProvider(
             IDynamicConfig config,
             RoundRobinStrategy roundRobin,
@@ -41,21 +41,20 @@ namespace LoadBalancer.Core.LoadBalancing.Strategies
         }
 
         /// <inheritdoc/>
-        public IBackendSelectorStrategy Current => _current;
+        public IBackendSelectorStrategy Current => Volatile.Read(ref _current);
 
         /// <inheritdoc/>
         public void Refresh()
         {
-            _current = Resolve(_config.Strategy);
+            var next = Resolve(_config.Strategy);
+            Volatile.Write(ref _current, next);
             _logger.LogInformation("Strategy changed to {Strategy}", _config.Strategy);
         }
 
         /// <summary>
         /// Resolves the correct strategy instance based on its name.
-        /// Defaults to <see cref="RoundRobinStrategy"/> if no match is found.
+        /// Defaults to round robin if the name does not match.
         /// </summary>
-        /// <param name="name">The strategy name from configuration.</param>
-        /// <returns>An <see cref="IBackendSelectorStrategy"/> instance.</returns>
         private IBackendSelectorStrategy Resolve(string name) =>
             name?.Equals("LeastQueue", StringComparison.OrdinalIgnoreCase) == true
                 ? _leastQueue
