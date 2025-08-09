@@ -2,7 +2,7 @@ namespace LoadBalancerProject.LoadBalancing
 {
     using System;
     using LoadBalancerProject.Health;
-    using LoadBalancerProject.Strategies;
+    using LoadBalancerProject.LoadBalancing.Strategies;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
