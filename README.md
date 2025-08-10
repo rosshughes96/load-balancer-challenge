@@ -92,6 +92,9 @@ Open JMeter → load `tools/JMeterTestPlan/LB_TCP_Test.jmx`, set **Server**=`127
 
 ---
 
-## Notes
+## Future Improvements
 
-- The **OutageGate + ITcpRefuser integration** was an **11th‑hour change**, so I didn’t have time to write unit tests for this part yet. Everything else remains covered by the existing test suite.
+- The OutageGate + ITcpRefuser integration was was an 11th‑hour change, which limited the time available to implement unit tests for this component.
+- Add a batch endpoint to perform multiple add/remove operations on the active servers list in a single request. The current single server endpoint does not scale for large updates; at the moment this would require a PowerShell script that iterates over a list and calls the endpoint one server at a time.
+- Increase automated test coverage, including targeted integration tests.
+- Allocate time to generate coverage reports and run Stryker mutation testing to validate test effectiveness and complete the suite.
