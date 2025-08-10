@@ -10,7 +10,7 @@ using LoadBalancerProject.Proxy;
 using LoadBalancerProject.Queue;
 using LoadBalancerProject.Strategies;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options; // added for validation
+using Microsoft.Extensions.Options;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);

@@ -14,37 +14,6 @@ namespace LoadBalancerProject.Proxy
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Utility to refuse/close a client connection at L4 without emitting protocol bytes.
-    /// </summary>
-    internal static class TcpRefuser
-    {
-        /// <summary>
-        /// Refuse a client by either forcing a TCP reset (RST) or performing a graceful FIN close.
-        /// Guaranteed to dispose the client.
-        /// </summary>
-        public static void Refuse(TcpClient client, RefusalMode mode)
-        {
-            try
-            {
-                if (mode == RefusalMode.TcpReset)
-                {
-                    client.LingerState = new LingerOption(true, 0);
-                }
-                else
-                {
-                    try { client.Client?.Shutdown(SocketShutdown.Both); } catch { /* ignore */ }
-                }
-            }
-            catch { /* ignore */ }
-            finally
-            {
-                try { client.Close(); } catch { /* ignore */ }
-                client.Dispose();
-            }
-        }
-    }
-
-    /// <summary>
     /// TCP listener service that accepts clients and forwards them
     /// to a healthy backend chosen by the load balancer.
     /// When no healthy backends exist, connections are refused immediately and
@@ -150,7 +119,9 @@ namespace LoadBalancerProject.Proxy
                     SafeRemote(client));
 
                 _outageGate.OnRefusal();
-                TcpRefuser.Refuse(client, _refusalMode);
+
+                var tcpRefuser = new TcpRefuser();
+                tcpRefuser.Refuse(client, _refusalMode);
 
                 try { await Task.Delay(_acceptBackoffOnOutage, ct); } catch { /* ignore */ }
             }

@@ -35,10 +35,5 @@ namespace LoadBalancerProject.Backends
         /// <returns>A read-only list of backends.</returns>
         IReadOnlyList<Uri> List();
 
-        /// <summary>
-        /// Replaces all backends with the given set.
-        /// </summary>
-        /// <param name="backends">The backends to set.</param>
-        void SetAll(IEnumerable<Uri> backends);
     }
 }

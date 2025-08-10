@@ -40,7 +40,7 @@ internal static class Program
 
         var listener = new TcpListener(IPAddress.IPv6Any, _port)
         {
-            Server = { DualMode = true } // accept both IPv4 and IPv6
+            Server = { DualMode = true }
         };
 
         listener.Start();

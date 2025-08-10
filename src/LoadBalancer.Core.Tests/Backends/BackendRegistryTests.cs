@@ -148,7 +148,9 @@
             logger.AssertLogContains(LogLevel.Debug, "Listed 0 backends");
         }
 
-        [Test]
+        // Removed tests after the removal of the redundant SetAll method
+
+        /*[Test]
         public void SetAll_ReplacesExisting_OnlyNewRemainAndLogsCount()
         {
             // Arrange
@@ -164,9 +166,9 @@
             Assert.That(sut.List().Select(u => u.ToString()), Is.EqualTo(new[] { "tcp://new:3/" }));
             logger.AssertLogContains(LogLevel.Information, "Set all backends");
             logger.AssertLogContains(LogLevel.Information, "Count 1");
-        }
+        }*/
 
-        [Test]
+        /*[Test]
         public void SetAll_WithDuplicates_CountReflectsUniqueAfterNormalization()
         {
             // Arrange
@@ -186,7 +188,7 @@
             var list = sut.List();
             Assert.That(list.Select(u => u.ToString()), Is.EquivalentTo(new[] { "tcp://dupe:1/", "tcp://other:2/" }));
             logger.AssertLogContains(LogLevel.Information, "Count 2");
-        }
+        }*/
 
         [Test]
         public void CaseNormalisation_MixedCaseUris_TreatedAsSame()

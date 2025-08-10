@@ -75,24 +75,6 @@ namespace LoadBalancerProject.Backends
             return list;
         }
 
-        /// <inheritdoc/>
-        public void SetAll(IEnumerable<Uri> backends)
-        {
-            _map.Clear();
-            var count = 0;
-
-            // Reuse Add to keep behavior consistent.
-            foreach (var b in backends)
-            {
-                if (Add(b))
-                {
-                    count++;
-                }
-            }
-
-            _logger.LogInformation("Set all backends. Count {Count}", count);
-        }
-
         /// <summary>
         /// Normalizes a backend address for use as a key.
         /// </summary>
