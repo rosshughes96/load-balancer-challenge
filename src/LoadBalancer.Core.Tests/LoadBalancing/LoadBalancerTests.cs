@@ -63,7 +63,6 @@ namespace LoadBalancerProject.Tests.LoadBalancing
             // Act & Assert
             var ex = Assert.Throws<InvalidOperationException>(() => sut.SelectBackend());
             Assert.That(ex!.Message, Does.Contain("No healthy backends"));
-            logger.AssertLogContains(LogLevel.Warning, "No healthy backends");
         }
 
         [Test]

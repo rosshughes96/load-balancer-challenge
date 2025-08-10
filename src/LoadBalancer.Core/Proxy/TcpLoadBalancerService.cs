@@ -1,7 +1,9 @@
 namespace LoadBalancerProject.Proxy
 {
+    using LoadBalancerProject.Diagnostics.Outage;
     using LoadBalancerProject.LoadBalancing;
     using LoadBalancerProject.Options;
+    using LoadBalancerProject.Proxy.Refusal;
     using Microsoft.Extensions.Hosting;
     using Microsoft.Extensions.Logging;
     using Microsoft.Extensions.Options;
@@ -12,8 +14,41 @@ namespace LoadBalancerProject.Proxy
     using System.Threading.Tasks;
 
     /// <summary>
+    /// Utility to refuse/close a client connection at L4 without emitting protocol bytes.
+    /// </summary>
+    internal static class TcpRefuser
+    {
+        /// <summary>
+        /// Refuse a client by either forcing a TCP reset (RST) or performing a graceful FIN close.
+        /// Guaranteed to dispose the client.
+        /// </summary>
+        public static void Refuse(TcpClient client, RefusalMode mode)
+        {
+            try
+            {
+                if (mode == RefusalMode.TcpReset)
+                {
+                    client.LingerState = new LingerOption(true, 0);
+                }
+                else
+                {
+                    try { client.Client?.Shutdown(SocketShutdown.Both); } catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+            finally
+            {
+                try { client.Close(); } catch { /* ignore */ }
+                client.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
     /// TCP listener service that accepts clients and forwards them
     /// to a healthy backend chosen by the load balancer.
+    /// When no healthy backends exist, connections are refused immediately and
+    /// the service logs a single concise warning on outage entry and an info on recovery.
     /// </summary>
     public sealed class TcpLoadBalancerService : BackgroundService
     {
@@ -21,6 +56,9 @@ namespace LoadBalancerProject.Proxy
         private readonly ILoadBalancer _lb;
         private readonly IRequestForwarder _forwarder;
         private readonly int _listenPort;
+        private readonly OutageGate _outageGate;
+        private readonly RefusalMode _refusalMode = RefusalMode.TcpReset;
+        private readonly TimeSpan _acceptBackoffOnOutage = TimeSpan.FromMilliseconds(5);
 
         /// <summary>
         /// Creates the TCP load balancer service.
@@ -35,6 +73,7 @@ namespace LoadBalancerProject.Proxy
             _lb = lb;
             _forwarder = forwarder;
             _listenPort = opts.Value.ListenPort == 0 ? 6000 : opts.Value.ListenPort;
+            _outageGate = new OutageGate(logger);
         }
 
         /// <inheritdoc/>
@@ -42,7 +81,7 @@ namespace LoadBalancerProject.Proxy
         {
             var listener = new TcpListener(IPAddress.IPv6Any, _listenPort)
             {
-                Server = { DualMode = true } // accept IPv4 & IPv6
+                Server = { DualMode = true }
             };
 
             listener.Start();
@@ -52,7 +91,24 @@ namespace LoadBalancerProject.Proxy
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    var client = await listener.AcceptTcpClientAsync(stoppingToken);
+                    TcpClient client;
+
+                    try
+                    {
+                        client = await listener.AcceptTcpClientAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal on shutdown.
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Accept failed.");
+                        await Task.Delay(TimeSpan.FromMilliseconds(50), stoppingToken);
+                        continue;
+                    }
+
                     _ = HandleClientAsync(client, stoppingToken);
                 }
             }
@@ -72,22 +128,45 @@ namespace LoadBalancerProject.Proxy
 
         /// <summary>
         /// Handles a single client connection by forwarding it to a backend.
+        /// If no healthy backend is available, refuses the connection immediately (RST or FIN)
+        /// and applies a small backoff to avoid hot loops during a total outage.
         /// </summary>
         private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
         {
             try
             {
                 var backend = _lb.SelectBackend();
+
+                _outageGate.OnRecovered();
+
                 _logger.LogInformation("Accepted client {Remote}, forwarding to {Backend}",
                     client.Client.RemoteEndPoint, backend);
 
                 await _forwarder.ForwardAsync(backend, client);
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogDebug(ex, "Backend selection failed; refusing client {Remote}.",
+                    SafeRemote(client));
+
+                _outageGate.OnRefusal();
+                TcpRefuser.Refuse(client, _refusalMode);
+
+                try { await Task.Delay(_acceptBackoffOnOutage, ct); } catch { /* ignore */ }
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling TCP client");
+                _logger.LogError(ex, "Error handling TCP client {Remote}", SafeRemote(client));
                 try { client.Close(); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Safely formats a remote endpoint for logging, even if the client socket has already closed.
+        /// </summary>
+        private static object? SafeRemote(TcpClient client)
+        {
+            try { return client.Client?.RemoteEndPoint; } catch { return null; }
         }
     }
 }

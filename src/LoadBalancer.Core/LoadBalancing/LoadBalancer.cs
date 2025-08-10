@@ -37,7 +37,6 @@ namespace LoadBalancerProject.LoadBalancing
 
             if (healthy.Count == 0)
             {
-                _logger.LogWarning("No healthy backends available to select");
                 throw new InvalidOperationException("No healthy backends available.");
             }
 
